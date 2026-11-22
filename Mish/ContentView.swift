@@ -13,7 +13,8 @@ extension Color {
                   opacity: opacity)
     }
 
-    static let mishGreen = Color(hex: 0xa6e3a1)
+    // Follows the active theme's accent color.
+    static var mishGreen: Color { MishPalette.accent }
     static let mishDim = Color(hex: 0x9294a1)
 }
 
@@ -251,7 +252,9 @@ struct ContentView: View {
     private var albumBlurRadius = 55.0
     @StateObject private var lyricsModel = LyricsModel()
     @EnvironmentObject private var settings: MishSettings
+    @EnvironmentObject private var themeStore: MishThemeStore
     @State private var showAppearanceSettings = false
+    @State private var showThemeEditor = false
     
 
 @State private var showBackgroundSettings = false
@@ -309,6 +312,20 @@ struct ContentView: View {
     ).localizedCaseInsensitiveCompare("Jane Remover") == .orderedSame
 }
 
+    /// Normal background: the active custom theme (its blur replaces the album-art blur when "override" is on).
+    private var standardBackground: some View {
+        MishThemedBackground(
+            artwork: player.currentTrack?.artwork,
+            fallbackTheme: settings.baseTheme,
+            albumBlurEnabled: albumBlurEnabled,
+            albumBlurRadius: albumBlurRadius
+        )
+    }
+
+    private var mainColor: Color {
+        specialMode ? Color.black : MishPalette.main
+    }
+
     private var importTypes: [UTType] {
         importFolder
             ? [.folder]
@@ -332,13 +349,7 @@ struct ContentView: View {
                     .ignoresSafeArea()
         
             } else if isDoItTrack {
-                AlbumArtBackground(
-                    artwork: player.currentTrack?.artwork,
-                    blurRadius: albumBlurRadius,
-                    blurEnabled: albumBlurEnabled,
-                    theme: settings.baseTheme
-                )
-                .id(player.currentTrack?.url)
+                standardBackground
             } else if specialMode {
                 GeometryReader { geometry in
                     if let image = Self.underscoresBackground {
@@ -380,13 +391,7 @@ struct ContentView: View {
                     .ignoresSafeArea()
         
             } else {
-                AlbumArtBackground(
-                    artwork: player.currentTrack?.artwork,
-                    blurRadius: albumBlurRadius,
-                    blurEnabled: albumBlurEnabled,
-                    theme: settings.baseTheme
-                )
-                .id(player.currentTrack?.url)
+                standardBackground
             }
 
                 
@@ -459,7 +464,8 @@ struct ContentView: View {
                 )
                 bottomNav
             }
-            .foregroundStyle(specialMode ? Color.black : Color.white)
+            .foregroundStyle(mainColor)
+            .id(themeStore.paletteRevision)
         }
         .preferredColorScheme(specialMode ? .light : .dark)
         .animation(.easeInOut(duration: 0.22), value: specialMode)
@@ -495,6 +501,10 @@ struct ContentView: View {
         .sheet(isPresented: $showAppearanceSettings) {
             AppearanceSettingsView()
                 .environmentObject(settings)
+        }
+        .sheet(isPresented: $showThemeEditor) {
+            MishThemeEditorView()
+                .environmentObject(themeStore)
         }
         .task(id: player.currentTrack?.url) {
             guard let track = player.currentTrack else {
@@ -542,27 +552,40 @@ struct ContentView: View {
                     .font(.system(size: 20, weight: .medium))
                     .frame(width: 44, height: 44)
             }
-            .tint(specialMode ? .black : .white)
+            .tint(mainColor)
+            .frame(width: 88, alignment: .leading) // balances the two icons on the right
 
             Spacer()
 
             Text("mish")
                 .font(.custom("delagothicone-regular", size: 20))
-                .foregroundStyle(specialMode ? .black : .white)
+                .foregroundStyle(mainColor)
 
             Spacer()
 
-            Button {
-                showBackgroundSettings = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 44, height: 44)
+            HStack(spacing: 0) {
+                Button {
+                    showThemeEditor = true
+                } label: {
+                    Image(systemName: "paintbrush.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Theme Studio")
+
+                Button {
+                    showBackgroundSettings = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Background Settings")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Background Settings")
                     }
-                    .foregroundColor(specialMode ? .black : .white)
+                    .foregroundColor(mainColor)
                     .padding(.horizontal, 12)
                 }
 
@@ -720,7 +743,7 @@ struct NowPlayingView: View {
             in: .whitespacesAndNewlines
         ).localizedCaseInsensitiveCompare("underscores") == .orderedSame
     }
-    private var mainText: Color { specialMode ? .black : .white }
+    private var mainText: Color { specialMode ? .black : MishPalette.main }
     private var secondaryText: Color { specialMode ? Color.black.opacity(0.62) : Color(hex: 0xa7a8b3) }
     private var progressTrack: Color { specialMode ? Color.black.opacity(0.22) : Color(hex: 0x454650) }
     private var progressFill: Color { specialMode ? .black : Color(hex: 0xf5f5f7) }
