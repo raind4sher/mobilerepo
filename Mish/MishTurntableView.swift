@@ -5,11 +5,13 @@ import UIKit
 
 /// The vinyl layout's record player.
 ///
-/// - The record's angle is tied to the song position, so it turns while playing,
-///   freezes when paused, and also turns when you use the seek bar.
-/// - A tonearm swings onto the record when music plays, slowly moves inward as the
-///   song goes on, and lifts off when paused.
-/// - Drag around the record to scrub: clockwise goes forward, counter-clockwise goes back.
+/// - The record turns smoothly while playing, freezes when paused, and also turns when you
+///   use the seek bar.
+/// - A tonearm swings onto the record when music plays, slowly moves inward as the song
+///   goes on, and lifts off when paused.
+/// - Put a finger on the record and drag around it to scratch. The music follows your hand:
+///   clockwise plays forward, counter-clockwise plays backwards, fast spins pitch it up,
+///   and holding still silences it.
 struct MishTurntableView: View {
     @EnvironmentObject private var player: PlayerModel
 
@@ -17,8 +19,9 @@ struct MishTurntableView: View {
 
     /// How fast the record turns while playing (90 = one turn every 4 seconds).
     private let degreesPerSecond: Double = 90
-    /// How many seconds of song one "record second" of dragging moves. Higher = faster seeking.
-    private let scrubMultiplier: Double = 2.5
+    /// 1 = true scratching (turning the record at its normal speed plays at normal speed).
+    /// Higher means the music moves faster than your hand, which is better for seeking.
+    private let scrubMultiplier: Double = 1.5
 
     // MARK: Layout
 
@@ -34,11 +37,19 @@ struct MishTurntableView: View {
     private let outerAngle: Double = 7      // needle on the outer groove
     private let innerAngle: Double = 22     // needle near the label
 
-    // MARK: Scratch state
+    // MARK: State
 
-    /// Extra rotation so the record stays under your finger even when seeking is clamped or scaled.
+    /// Smooths the record's angle so it never stutters.
+    @State private var clock = MishDiscClock()
+    /// Keeps the record's angle continuous after scratching or seeking.
     @State private var spinOffset: Double = 0
+
+    @State private var scratchEnabled = false
+    @State private var scratchAngle: Double = 0
     @State private var lastFingerAngle: Double?
+    @State private var lastSpeedTime = Date()
+    @State private var pendingDegrees: Double = 0
+    @State private var smoothedSpeed: Double = 0
     @State private var hapticDegrees: Double = 0
     @State private var feedback = UISelectionFeedbackGenerator()
 
@@ -46,10 +57,6 @@ struct MishTurntableView: View {
 
     private var needleDown: Bool {
         player.isPlaying || player.isScratching
-    }
-
-    private var discAngle: Double {
-        player.liveCurrentTime * degreesPerSecond + spinOffset
     }
 
     private var armAngle: Double {
@@ -90,12 +97,31 @@ struct MishTurntableView: View {
     // MARK: Record
 
     private var discLayer: some View {
-        TimelineView(.animation(paused: !needleDown)) { _ in
+        TimelineView(.animation(paused: !needleDown)) { context in
             MishVinylDisc(artwork: player.currentTrack?.artwork)
-                .rotationEffect(.degrees(discAngle))
+                .equatable()
+                .drawingGroup()
+                .rotationEffect(.degrees(angle(at: context.date)))
         }
         .frame(width: discSize, height: discSize)
         .shadow(color: Color.black.opacity(0.35), radius: 10, x: 0, y: 6)
+    }
+
+    /// The angle to draw this frame.
+    private func angle(at date: Date) -> Double {
+        if scratchEnabled {
+            // The record sits exactly under your finger.
+            clock.hold(at: scratchAngle, date: date)
+            return scratchAngle
+        }
+
+        let target = player.liveCurrentTime * degreesPerSecond + spinOffset
+        return clock.advance(
+            to: date,
+            playing: player.isPlaying,
+            speed: degreesPerSecond,
+            target: target
+        )
     }
 
     private var sheenColors: [Color] {
@@ -149,7 +175,7 @@ struct MishTurntableView: View {
             .gesture(scratchGesture)
             .accessibilityElement()
             .accessibilityLabel("Vinyl record")
-            .accessibilityHint("Drag around the record to scrub through the song")
+            .accessibilityHint("Drag around the record to scratch and scrub through the song")
             .accessibilityAdjustableAction { direction in
                 adjust(direction)
             }
@@ -158,14 +184,14 @@ struct MishTurntableView: View {
     private var scratchGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                handleDrag(at: value.location, start: value.startLocation)
+                handleDrag(at: value.location, start: value.startLocation, time: value.time)
             }
             .onEnded { _ in
                 finishDrag()
             }
     }
 
-    private func handleDrag(at point: CGPoint, start: CGPoint) {
+    private func handleDrag(at point: CGPoint, start: CGPoint, time: Date) {
         let center = discSize / 2
         let dx = point.x - center
         let dy = point.y - center
@@ -183,8 +209,7 @@ struct MishTurntableView: View {
             let moved = (sx * sx + sy * sy).squareRoot()
             guard moved > 6 else { return }
 
-            player.beginScratch()
-            lastFingerAngle = finger
+            beginScratch(finger: finger, time: time)
             return
         }
 
@@ -196,15 +221,35 @@ struct MishTurntableView: View {
         }
 
         lastFingerAngle = finger
-        applyScratch(degrees: delta)
+
+        guard scratchEnabled else { return }
+        applyScratch(degrees: delta, time: time)
     }
 
-    private func applyScratch(degrees: Double) {
-        let seconds = degrees / degreesPerSecond * scrubMultiplier
-        let applied = player.scratch(by: seconds)
+    private func beginScratch(finger: Double, time: Date) {
+        lastFingerAngle = finger
+        scratchAngle = clock.angle
+        pendingDegrees = 0
+        smoothedSpeed = 0
+        lastSpeedTime = time
+        scratchEnabled = player.beginScratch()
+    }
 
-        // Keep the record exactly under the finger.
-        spinOffset += degrees - applied * degreesPerSecond
+    private func applyScratch(degrees: Double, time: Date) {
+        scratchAngle += degrees
+        pendingDegrees += degrees
+
+        // Turn hand movement into playback speed, a little smoothed so it doesn't crackle.
+        let elapsed = time.timeIntervalSince(lastSpeedTime)
+        if elapsed >= 0.008 {
+            let angularSpeed = pendingDegrees / elapsed
+            let rawSpeed = angularSpeed / degreesPerSecond * scrubMultiplier
+            smoothedSpeed = smoothedSpeed * 0.4 + rawSpeed * 0.6
+            player.setScratchSpeed(smoothedSpeed)
+
+            pendingDegrees = 0
+            lastSpeedTime = time
+        }
 
         hapticDegrees += abs(degrees)
         if hapticDegrees >= 14 {
@@ -214,8 +259,11 @@ struct MishTurntableView: View {
     }
 
     private func finishDrag() {
-        if lastFingerAngle != nil {
+        if scratchEnabled {
             player.endScratch()
+            // Carry on from exactly where the record was left.
+            spinOffset = scratchAngle - player.liveCurrentTime * degreesPerSecond
+            scratchEnabled = false
         }
         lastFingerAngle = nil
         hapticDegrees = 0
@@ -229,10 +277,55 @@ struct MishTurntableView: View {
     }
 }
 
+// MARK: - Smooth angle
+
+/// Turns the audio clock into a steady rotation. The audio player's time moves in small
+/// jumps, so the record turns at a constant speed and is only gently nudged to stay in sync.
+final class MishDiscClock {
+    private(set) var angle: Double = 0
+    private var lastDate: Date?
+
+    func hold(at newAngle: Double, date: Date) {
+        angle = newAngle
+        lastDate = date
+    }
+
+    func advance(to date: Date, playing: Bool, speed: Double, target: Double) -> Double {
+        defer { lastDate = date }
+
+        guard playing, let last = lastDate else {
+            angle = target
+            return angle
+        }
+
+        let dt = date.timeIntervalSince(last)
+        guard dt > 0, dt < 0.25 else {
+            // First frame after a pause or a long gap.
+            angle = target
+            return angle
+        }
+
+        angle += dt * speed
+
+        let error = target - angle
+        if abs(error) > 45 {
+            // A seek or a new song: jump there.
+            angle = target
+        } else {
+            angle += error * min(1, dt * 4)
+        }
+        return angle
+    }
+}
+
 // MARK: - Record
 
-struct MishVinylDisc: View {
+struct MishVinylDisc: View, Equatable {
     let artwork: UIImage?
+
+    static func == (lhs: MishVinylDisc, rhs: MishVinylDisc) -> Bool {
+        lhs.artwork === rhs.artwork
+    }
 
     private var bodyColors: [Color] {
         [Color(white: 0.25), Color.black, Color(white: 0.12), Color.black]
