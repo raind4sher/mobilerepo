@@ -361,17 +361,45 @@ private func restorePlaylists() {
     playlists = saved
 }
 
-func createPlaylist(name: String) {
+@discardableResult
+func createPlaylist(name: String, coverData: Data? = nil) -> UUID? {
     let cleaned = name.trimmingCharacters(
         in: .whitespacesAndNewlines
     )
 
-    guard !cleaned.isEmpty else { return }
+    guard !cleaned.isEmpty else { return nil }
 
-    playlists.append(
-        MishPlaylist(name: cleaned, trackPaths: [])
-    )
+    var playlist = MishPlaylist(name: cleaned, trackPaths: [])
+    if let coverData {
+        playlist.coverFilename = MishPlaylistCovers.shared.save(coverData)
+    }
 
+    playlists.append(playlist)
+    savePlaylists()
+    return playlist.id
+}
+
+/// Custom cover for a playlist (nil if it doesn't have one).
+func playlistCover(for playlist: MishPlaylist) -> UIImage? {
+    MishPlaylistCovers.shared.image(named: playlist.coverFilename)
+}
+
+func setPlaylistCover(id: UUID, data: Data) {
+    guard let index = playlists.firstIndex(where: { $0.id == id }),
+          let newName = MishPlaylistCovers.shared.save(data) else {
+        return
+    }
+
+    MishPlaylistCovers.shared.remove(named: playlists[index].coverFilename)
+    playlists[index].coverFilename = newName
+    savePlaylists()
+}
+
+func clearPlaylistCover(id: UUID) {
+    guard let index = playlists.firstIndex(where: { $0.id == id }) else { return }
+
+    MishPlaylistCovers.shared.remove(named: playlists[index].coverFilename)
+    playlists[index].coverFilename = nil
     savePlaylists()
 }
 
@@ -392,6 +420,9 @@ func renamePlaylist(id: UUID, name: String) {
 }
 
 func deletePlaylist(id: UUID) {
+    if let playlist = playlists.first(where: { $0.id == id }) {
+        MishPlaylistCovers.shared.remove(named: playlist.coverFilename)
+    }
     playlists.removeAll { $0.id == id }
     savePlaylists()
 }
@@ -403,8 +434,31 @@ func addToPlaylist(id: UUID, track: Track) {
         return
     }
 
+    // Don't add the same song to a playlist twice.
+    let key = trackKey(track.url)
+    guard !playlists[index].trackPaths.contains(key) else { return }
+
     playlists[index].add(track.url)
     savePlaylists()
+}
+
+/// Plays a specific list of songs (an album, say) as the queue, starting at `track`.
+func playTracks(_ list: [Track], startingAt track: Track? = nil) {
+    let paths = list.map { trackKey($0.url) }
+    guard !paths.isEmpty else { return }
+
+    let target = track ?? list[0]
+    let targetKey = trackKey(target.url)
+
+    guard let index = tracks.firstIndex(where: {
+        trackKey($0.url) == targetKey
+    }) else {
+        return
+    }
+
+    activePlaylistURLs = paths
+    rebuildOrder(startingWith: index)
+    startTrack(at: index)
 }
 
     func removeFromPlaylist(id: UUID, at index: Int) {

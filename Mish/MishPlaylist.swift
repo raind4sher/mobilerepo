@@ -5,6 +5,8 @@ struct MishPlaylist: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var name: String
     var trackPaths: [String]
+    /// File name of a custom cover picture (see MishPlaylistCovers).
+    var coverFilename: String? = nil
 
     var trackCount: Int {
         trackPaths.count
