@@ -740,54 +740,64 @@ func playTracks(_ list: [Track], startingAt track: Track? = nil) {
     }
 
     /// Playback position read straight from the audio player (smooth, unlike `currentTime`).
+    /// While the vinyl is being scratched it follows the scratch playhead instead.
     var liveCurrentTime: TimeInterval {
-        player?.currentTime ?? currentTime
+        if isScratching, let engine = scratchEngine {
+            return engine.currentSeconds
+        }
+        return player?.currentTime ?? currentTime
     }
 
     // MARK: Vinyl scratching
     //
-    // While the record is held, the normal playback pauses. Every move plays a tiny slice of
-    // audio at the new spot, forwards or backwards, which gives the scrubbing sound.
+    // While the record is held, normal playback pauses and MishScratchEngine plays the song
+    // at whatever speed you spin the record: faster, slower, still, or backwards.
 
+    private var scratchEngine: MishScratchEngine?
+    private var scratchTimer: Timer?
     private var scratchResumesPlayback = false
-    private var scratchGrainStop: DispatchWorkItem?
-    private var lastGrainDate = Date.distantPast
 
-    func beginScratch() {
-        guard let p = player, !isScratching else { return }
+    /// Returns false if the song couldn't be opened for scratching (nothing changes then).
+    @discardableResult
+    func beginScratch() -> Bool {
+        guard let p = player, let url = currentTrack?.url else { return false }
+        guard !isScratching else { return true }
+
+        let engine = MishScratchEngine()
+        guard engine.begin(url: url, at: p.currentTime) else { return false }
 
         scratchResumesPlayback = isPlaying
-        isScratching = true
-
+        p.pause()
         if isPlaying {
-            p.pause()
             isPlaying = false
             timer?.invalidate()
         }
+
+        scratchEngine = engine
+        isScratching = true
+        startScratchTimer()
+        return true
     }
 
-    /// Moves the playhead by `seconds` (negative = backwards).
-    /// Returns how far it actually moved, which can be less near the ends of the song.
-    @discardableResult
-    func scratch(by seconds: TimeInterval) -> TimeInterval {
-        guard let p = player, isScratching else { return 0 }
-
-        let upper = max(0, p.duration - 0.5)
-        let old = p.currentTime
-        let target = max(0, min(old + seconds, upper))
-
-        p.currentTime = target
-        currentTime = target
-        playScratchGrain(p)
-
-        return target - old
+    /// Playback speed while scratching: 1 = normal, 2 = double, negative = backwards.
+    func setScratchSpeed(_ speed: Double) {
+        scratchEngine?.setSpeed(speed)
     }
 
     func endScratch() {
         guard isScratching else { return }
 
-        scratchGrainStop?.cancel()
-        player?.pause()
+        scratchTimer?.invalidate()
+        scratchTimer = nil
+
+        let finalTime = scratchEngine?.end() ?? player?.currentTime ?? 0
+        scratchEngine = nil
+
+        if let p = player {
+            p.currentTime = max(0, min(finalTime, max(0, p.duration - 0.3)))
+            currentTime = p.currentTime
+        }
+
         isScratching = false
 
         if scratchResumesPlayback {
@@ -798,19 +808,16 @@ func playTracks(_ list: [Track], startingAt track: Track? = nil) {
         scratchResumesPlayback = false
     }
 
-    private func playScratchGrain(_ p: AVAudioPlayer) {
-        let now = Date()
-        guard now.timeIntervalSince(lastGrainDate) > 0.05 else { return }
-        lastGrainDate = now
+    private func startScratchTimer() {
+        scratchTimer?.invalidate()
 
-        p.play()
-
-        scratchGrainStop?.cancel()
-        let stop = DispatchWorkItem { [weak self] in
-            self?.player?.pause()
+        let tick = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self, let engine = self.scratchEngine else { return }
+            engine.recenterIfNeeded()
+            self.currentTime = engine.currentSeconds
         }
-        scratchGrainStop = stop
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: stop)
+        RunLoop.main.add(tick, forMode: .common)
+        scratchTimer = tick
     }
 
     func seek(to time: TimeInterval) {
