@@ -32,6 +32,8 @@ final class PlayerModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var tracks: [Track] = []
     @Published private(set) var currentIndex: Int? = nil
     @Published private(set) var isPlaying = false
+    /// True while the vinyl is being dragged (scrubbing).
+    @Published private(set) var isScratching = false
     @Published private(set) var hasActivePlayback = false
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var playlists: [MishPlaylist] = []
@@ -735,6 +737,80 @@ func playTracks(_ list: [Track], startingAt track: Track? = nil) {
             }
             if pos == 0 && repeatMode != .all { break }
         }
+    }
+
+    /// Playback position read straight from the audio player (smooth, unlike `currentTime`).
+    var liveCurrentTime: TimeInterval {
+        player?.currentTime ?? currentTime
+    }
+
+    // MARK: Vinyl scratching
+    //
+    // While the record is held, the normal playback pauses. Every move plays a tiny slice of
+    // audio at the new spot, forwards or backwards, which gives the scrubbing sound.
+
+    private var scratchResumesPlayback = false
+    private var scratchGrainStop: DispatchWorkItem?
+    private var lastGrainDate = Date.distantPast
+
+    func beginScratch() {
+        guard let p = player, !isScratching else { return }
+
+        scratchResumesPlayback = isPlaying
+        isScratching = true
+
+        if isPlaying {
+            p.pause()
+            isPlaying = false
+            timer?.invalidate()
+        }
+    }
+
+    /// Moves the playhead by `seconds` (negative = backwards).
+    /// Returns how far it actually moved, which can be less near the ends of the song.
+    @discardableResult
+    func scratch(by seconds: TimeInterval) -> TimeInterval {
+        guard let p = player, isScratching else { return 0 }
+
+        let upper = max(0, p.duration - 0.5)
+        let old = p.currentTime
+        let target = max(0, min(old + seconds, upper))
+
+        p.currentTime = target
+        currentTime = target
+        playScratchGrain(p)
+
+        return target - old
+    }
+
+    func endScratch() {
+        guard isScratching else { return }
+
+        scratchGrainStop?.cancel()
+        player?.pause()
+        isScratching = false
+
+        if scratchResumesPlayback {
+            resume()
+        } else {
+            updateNowPlaying()
+        }
+        scratchResumesPlayback = false
+    }
+
+    private func playScratchGrain(_ p: AVAudioPlayer) {
+        let now = Date()
+        guard now.timeIntervalSince(lastGrainDate) > 0.05 else { return }
+        lastGrainDate = now
+
+        p.play()
+
+        scratchGrainStop?.cancel()
+        let stop = DispatchWorkItem { [weak self] in
+            self?.player?.pause()
+        }
+        scratchGrainStop = stop
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: stop)
     }
 
     func seek(to time: TimeInterval) {
