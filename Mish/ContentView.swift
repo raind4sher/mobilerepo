@@ -719,16 +719,12 @@ struct NowPlayingView: View {
                     ) {
                         switch settings.layout {
                         case .classic:
-                            if isDoItTrack || !specialMode {
-                                artwork
-                            }
+                            artwork
                             
                             trackInfo
     
                         case .vinyl:
-                            if !specialMode {
-                                vinylArtwork
-                            }
+                            vinylArtwork
     
                             trackInfo
     
@@ -1251,20 +1247,18 @@ struct TrackRow: View {
 
     var body: some View {
         HStack(spacing: 11) {
-            if !specialMode {
-                ZStack {
-                    if let image = track.artwork {
-                        Image(uiImage: image).resizable().scaledToFill()
-                    } else {
-                        LinearGradient(colors: [Color(hex: 0x353639), Color(hex: 0x252629)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                        Text("m").font(.custom("delagothicone-regular", size: 19))
-                            .foregroundStyle(Color(hex: 0xC9C9CD))
-                    }
+            ZStack {
+                if let image = track.artwork {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: [Color(hex: 0x353639), Color(hex: 0x252629)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Text("m").font(.custom("delagothicone-regular", size: 19))
+                        .foregroundStyle(Color(hex: 0xC9C9CD))
                 }
-                .frame(width: 39, height: 39)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+            .frame(width: 39, height: 39)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text(track.title).font(.system(size: 12, weight: .semibold))
                     .foregroundColor(highlighted ? .mishGreen : (specialMode ? .black : .white))
