@@ -751,78 +751,10 @@ struct NowPlayingView: View {
     }
 
     
-    private var vinylDisc: some View {
-        ZStack {
-            Circle()
-    .fill(
-        RadialGradient(
-            colors: [
-                Color(white: 0.25),
-                Color.black,
-                Color(white: 0.12),
-                Color.black
-            ],
-            center: .center,
-            startRadius: 8,
-            endRadius: 170
-                )
-            )
-            // Vinyl grooves
-            ForEach(0..<7, id: \.self) { index in
-                Circle()
-                    .stroke(
-                        Color.white.opacity(0.06),
-                        lineWidth: 1
-                    )
-                    .padding(CGFloat(index + 1) * 9)
-            }
-    
-            if let image = player.currentTrack?.artwork {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 155, height: 155)
-                    .clipShape(Circle())
-                    .overlay {
-                        Circle()
-                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                    }
-            } else {
-                Circle()
-                    .fill(Color.mishGreen.opacity(0.75))
-                    .frame(width: 155, height: 155)
-                    .overlay {
-                        Text("mish")
-                            .font(.custom("delagothicone-regular", size: 30))
-                            .foregroundStyle(.black)
-                    }
-            }
-    
-            Circle()
-                .fill(Color.black)
-                .frame(width: 12, height: 12)
-                .overlay {
-                    Circle()
-                        .fill(Color.white.opacity(0.4))
-                        .frame(width: 3, height: 3)
-                }
-        }
-        .frame(width: 290, height: 290)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+    private var vinylArtwork: some View {
+        MishTurntableView()
     }
 
- private var vinylArtwork: some View {
-      TimelineView(.animation(paused: !player.isPlaying)) { context in
-          let seconds = context.date.timeIntervalSinceReferenceDate
-          let angle = seconds.truncatingRemainder(dividingBy: 4) / 4 * 360
-          vinylDisc.rotationEffect(.degrees(angle))
-      }
-      .frame(width: 290, height: 290)
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 10)
-  }
-    
     private var minimalHeader: some View {
         HStack(spacing: 14) {
             Group {
