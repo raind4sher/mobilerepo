@@ -47,7 +47,7 @@ struct MishTheme: Identifiable, Codable, Equatable {
             accentHex: 0xA6E3A1,
             mainHex: 0xFFFFFF,
             backgroundHex: 0x101014,
-            overlayOpacity: 0.22,
+            overlayOpacity: 0.48,
             blurEnabled: true,
             blurRadius: 55,
             overridesAlbumArtBlur: false,
@@ -98,6 +98,13 @@ final class MishThemeStore: ObservableObject {
             return theme
         }
         return themes.first ?? MishTheme.starter
+    }
+
+    /// Changes whenever the accent or main color (or active theme) changes,
+    /// so the main screen can rebuild itself with `.id(...)`.
+    var paletteRevision: String {
+        let theme = activeTheme
+        return "\(theme.id.uuidString)-\(theme.accentHex)-\(theme.mainHex)"
     }
 
     // MARK: Editing
@@ -248,7 +255,23 @@ final class MishThemeStore: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.set(data, forKey: defaultsKey)
         defaults.set(activeThemeID?.uuidString, forKey: activeKey)
+        syncPalette()
     }
+
+    private func syncPalette() {
+        let theme = activeTheme
+        MishPalette.accent = theme.accentColor
+        MishPalette.main = theme.mainColor
+    }
+}
+
+// MARK: - App-wide palette
+
+/// The active theme's accent and main colors, readable from any view
+/// (the store keeps this up to date). `Color.mishGreen` reads from here.
+enum MishPalette {
+    static var accent: Color = Color(mishHex: 0xA6E3A1)
+    static var main: Color = Color.white
 }
 
 // MARK: - Color <-> hex
