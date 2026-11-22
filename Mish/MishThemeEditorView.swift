@@ -129,10 +129,12 @@ private struct MishThemeDetailEditor: View {
                         .onChange(of: theme.name) { _, _ in save() }
                 }
 
-                Section("Colors") {
+                Section {
                     colorRow("Accent color", hex: $theme.accentHex)
                     colorRow("Main color", hex: $theme.mainHex)
                     colorRow("Background color", hex: $theme.backgroundHex)
+                } header: {
+                    Text("Colors")
                 } footer: {
                     Text("Accent is used for highlights and selected states. Main is the primary text and control color.")
                 }
