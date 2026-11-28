@@ -179,7 +179,10 @@ private enum MishLibraryDestination: Hashable {
 
 struct MishLibraryView: View {
     @EnvironmentObject private var player: PlayerModel
+    @EnvironmentObject private var profile: MishProfile
     @AppStorage("mishLibraryGrid") private var gridLayout = false
+    @State private var greeting = ""
+    @State private var showProfile = false
 
     @State private var section: MishLibrarySection = .albums
     @State private var destination: MishLibraryDestination?
@@ -198,6 +201,13 @@ struct MishLibraryView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: destination)
+        .onAppear {
+            greeting = MishGreeting.text(for: profile.firstName)
+        }
+        .sheet(isPresented: $showProfile) {
+            MishIDEditSheet()
+                .environmentObject(profile)
+        }
         .sheet(isPresented: $showCreate) {
             MishPlaylistEditorSheet(mode: .create) { newID in
                 section = .playlists
@@ -235,10 +245,22 @@ struct MishLibraryView: View {
 
     private var headerRow: some View {
         HStack {
-            Text("Your Library")
+            Text(greeting.isEmpty ? "Your Library" : greeting)
                 .font(.system(size: 24, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
             Spacer()
+
+            Button {
+                showProfile = true
+            } label: {
+                MishAvatar(size: 32)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit mishID")
 
             Button {
                 showCreate = true
