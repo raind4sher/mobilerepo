@@ -5,14 +5,21 @@ struct MishLaunchFlow: View {
     @EnvironmentObject private var player: PlayerModel
     @StateObject private var settings = MishSettings()
     @StateObject private var themeStore = MishThemeStore()
+    @StateObject private var profile = MishProfile()
 
     private enum Stage {
         case intro
         case setup
+        case mishID
         case main
     }
 
     @State private var stage: Stage = .intro
+
+    /// After setup: ask for a mishID once, then go to the app.
+    private var stageAfterSetup: Stage {
+        profile.isSignedUp ? .main : .mishID
+    }
 
     var body: some View {
         ZStack {
@@ -23,7 +30,7 @@ struct MishLaunchFlow: View {
             case .intro:
                 MishLogoIntro {
                     withAnimation(.easeInOut(duration: 0.8)) {
-                        stage = settings.setupComplete ? .main : .setup
+                        stage = settings.setupComplete ? stageAfterSetup : .setup
                     }
                 }
                 .transition(.opacity)
@@ -31,10 +38,20 @@ struct MishLaunchFlow: View {
             case .setup:
                 MishSetupWizard {
                     withAnimation(.easeInOut(duration: 0.8)) {
-                        stage = .main
+                        stage = stageAfterSetup
                     }
                 }
                 .environmentObject(player)
+                .environmentObject(settings)
+                .transition(.opacity)
+
+            case .mishID:
+                MishIDSignUpView {
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        stage = .main
+                    }
+                }
+                .environmentObject(profile)
                 .environmentObject(settings)
                 .transition(.opacity)
 
@@ -43,6 +60,7 @@ struct MishLaunchFlow: View {
                     .environmentObject(player)
                     .environmentObject(settings)
                     .environmentObject(themeStore)
+                    .environmentObject(profile)
                     .transition(.opacity)
             }
         }
