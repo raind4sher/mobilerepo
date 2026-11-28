@@ -239,7 +239,7 @@ private struct AlbumArtBackground: View {
 // MARK: - Root
 struct ContentView: View {
     @EnvironmentObject var player: PlayerModel
-    @State private var tab: MishTab = .playing
+    @State private var tab: MishTab = .library
     @State private var showImporter = false
     @State private var importFolder = true
     @AppStorage("mishSpecialArtistModesEnabled")
